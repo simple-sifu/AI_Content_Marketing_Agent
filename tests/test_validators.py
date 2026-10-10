@@ -229,3 +229,161 @@ def test_density_message_range_is_clamped():
     failures = validate_blog(post, SOURCES, KEYWORD)
     density = next(f for f in failures if "density" in f)
     assert "i.e. 1-1 mentions" in density
+
+
+# --- LinkedIn ----------------------------------------------------------------------------
+
+from content_agent.linkedin import LinkedInDraft  # noqa: E402
+from content_agent.validators import (  # noqa: E402
+    hashtags,
+    linkedin_post_text,
+    linkedin_source_urls,
+    validate_linkedin,
+)
+
+HOOK = "Most B2B teams already use AI. Few use it well."
+CTA = "How is your team using AI this quarter? Tell me in the comments."
+TAGS = ["#AI", "#B2B", "#Marketing", "#ContentMarketing", "#DemandGen", "#SaaS", "#Growth", "#Strategy"]
+
+
+def make_story(chars: int, paragraphs: int = 3) -> str:
+    """Story of `paragraphs` paragraphs totalling exactly `chars` characters (breaks included)."""
+    body = chars - 2 * (paragraphs - 1)
+    sizes = [body // paragraphs] * paragraphs
+    sizes[-1] += body - sum(sizes)
+    sentence = "Teams that test small AI pilots learn faster than teams that wait. "
+
+    def para(size: int) -> str:
+        text = (sentence * (size // len(sentence) + 1))[: size - 1]
+        return (text[:-1] + "s" if text.endswith(" ") else text) + "."
+
+    return "\n\n".join(para(s) for s in sizes)
+
+
+def linkedin_draft(total: int = 1450, tags: list[str] | None = None, **kwargs) -> LinkedInDraft:
+    """A draft whose assembled post (hook through hashtags) is exactly `total` characters."""
+    tags = TAGS if tags is None else tags
+    fields = {"hook": HOOK, "cta": CTA, "hashtags": tags, "source_numbers": [1, 2]}
+    fields.update(kwargs)
+    fixed = len(fields["hook"]) + len(fields["cta"]) + len(" ".join(tags)) + 3 * 2  # 3 breaks
+    fields.setdefault("story", make_story(total - fixed))
+    return LinkedInDraft(**fields)
+
+
+def make_linkedin(
+    hook: str = HOOK,
+    story: str | None = None,
+    cta: str = CTA,
+    tags: list[str] | None = None,
+    urls: list[str] | None = None,
+    total: int = 1450,
+) -> str:
+    tags = TAGS if tags is None else tags
+    if story is None:
+        story = make_story(total - len(hook) - len(cta) - len(" ".join(tags)) - 6)
+    urls = [s["url"] for s in SOURCES] if urls is None else urls
+    listed = "\n".join(f"- {u}" for u in urls)
+    return f"{hook}\n\n{story}\n\n{cta}\n\n{' '.join(tags)}\n\nSources:\n{listed}\n"
+
+
+def test_linkedin_fixture_is_valid_and_exact_length():
+    post = make_linkedin()
+    assert len(linkedin_post_text(post)) == 1450
+    assert linkedin_source_urls(post) == [s["url"] for s in SOURCES]
+    assert hashtags(linkedin_post_text(post)) == TAGS
+    assert validate_linkedin(post, SOURCES) == []
+
+
+@pytest.mark.parametrize(("total", "ok"), [(1299, False), (1300, True), (1600, True), (1601, False)])
+def test_linkedin_length_bounds_exclude_sources(total, ok):
+    many = [{"title": "x", "url": f"https://example.com/{i}" + "x" * 200, "snippet": ""} for i in range(5)]
+    post = make_linkedin(total=total, urls=[s["url"] for s in many])
+    failures = validate_linkedin(post, many)
+    assert (failures == []) == ok
+    if not ok:
+        assert f"The post is {total} characters" in failures[0]
+
+
+@pytest.mark.parametrize(("n", "ok"), [(7, False), (8, True), (12, True), (13, False)])
+def test_linkedin_hashtag_count(n, ok):
+    tags = [f"#Tag{i}" for i in range(n)]
+    failures = validate_linkedin(make_linkedin(tags=tags), SOURCES)
+    assert (failures == []) == ok
+    if not ok:
+        assert failures == [f"The post has {n} unique hashtags; it needs 8-12."]
+
+
+def test_linkedin_repeated_hashtag_fails():
+    failures = validate_linkedin(make_linkedin(tags=TAGS + ["#ai"]), SOURCES)
+    assert "The hashtags must not repeat." in failures
+
+
+def test_linkedin_missing_hashtag_line_fails():
+    post = make_linkedin(tags=["#AI", "and", "words"])
+    assert "The post must end with one line of hashtags only (before Sources)." in validate_linkedin(post, SOURCES)
+
+
+def test_linkedin_needs_hook_story_cta():
+    post = f"{HOOK}\n\n{CTA}\n\n{' '.join(TAGS)}\n\nSources:\n- {SOURCES[0]['url']}\n"
+    failures = validate_linkedin(post, SOURCES)
+    assert any("hook, at least one story paragraph and a CTA" in f for f in failures)
+
+
+def test_linkedin_long_hook_fails():
+    hook = "A" * 211
+    failures = validate_linkedin(make_linkedin(hook=hook), SOURCES)
+    assert failures == ["The hook is 211 characters; it must be at most 210."]
+
+
+def test_linkedin_hashtag_in_prose_fails():
+    failures = validate_linkedin(make_linkedin(cta=CTA[:-1] + " #AI"), SOURCES)
+    assert "Hashtags belong only on the final hashtag line, not in the hook, story or CTA." in failures
+
+
+@pytest.mark.parametrize(
+    ("bad", "message"),
+    [
+        ("Teams win [1].", "The post must not contain [n] citation markers."),
+        ("## Heading", "The post must be plain text (no markdown headings or bold)."),
+        ("**Bold** claim.", "The post must be plain text (no markdown headings or bold)."),
+    ],
+)
+def test_linkedin_citations_and_markdown_fail(bad, message):
+    # The hook keeps the fixture's length so only the rule under test fails.
+    post = make_linkedin(hook=bad, total=1450 + len(bad) - len(HOOK))
+    assert validate_linkedin(post, SOURCES) == [message]
+
+
+def test_linkedin_multiline_hashtag_block_fails():
+    post = make_linkedin(tags=[*TAGS[:4], "\n" + TAGS[4], *TAGS[5:]])
+    assert "The post must end with one line of hashtags only (before Sources)." in validate_linkedin(post, SOURCES)
+
+
+def test_linkedin_sources_needs_blank_line_and_url_lines():
+    post = make_linkedin().replace("\n\nSources:", "\nSources:") + "see above\n"
+    failures = validate_linkedin(post, SOURCES)
+    assert "A blank line must separate the post from 'Sources:'." in failures
+    assert "Every line under Sources must be '- <url>'." in failures
+
+
+@pytest.mark.parametrize(
+    ("urls", "message"),
+    [
+        ([], "The Sources list has 0 URLs; it needs 1-5."),
+        (["https://example.com/1"] * 2, "The Sources list must not repeat a URL."),
+        (["https://made-up.example"], "Source URL(s) not from the research: https://made-up.example."),
+    ],
+)
+def test_linkedin_sources_rules(urls, message):
+    assert message in validate_linkedin(make_linkedin(urls=urls), SOURCES)
+
+
+def test_linkedin_too_many_sources():
+    many = [{"title": "x", "url": f"https://example.com/{i}", "snippet": ""} for i in range(6)]
+    post = make_linkedin(urls=[s["url"] for s in many])
+    assert validate_linkedin(post, many) == ["The Sources list has 6 URLs; it needs 1-5."]
+
+
+def test_linkedin_missing_sources_block():
+    post = make_linkedin().split("\n\nSources:")[0]
+    assert validate_linkedin(post, SOURCES) == ["The post must end with a 'Sources:' list of URLs."]
