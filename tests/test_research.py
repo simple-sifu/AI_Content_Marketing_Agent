@@ -23,7 +23,7 @@ from content_agent.research import (
     SerpAPIError,
     Synthesis,
 )
-from content_agent.router import RouteDecision
+from content_agent.router import PostResearchDecision, RouteDecision
 from content_agent.strategist import Report
 from tests.conftest import FakeLLM
 
@@ -46,6 +46,7 @@ def _fake(
     synthesis: Synthesis | None = None,
     errors: dict | None = None,
     report: Report | None = None,
+    target_format: str = "report",
 ) -> FakeLLM:
     return FakeLLM(
         {
@@ -56,6 +57,7 @@ def _fake(
                 summary="AI adoption in B2B marketing is rising [1][3].",
                 key_findings=["Most teams use AI for content [1].", "Personalization drives ROI [2][4]."],
             ),
+            PostResearchDecision: PostResearchDecision(target_format=target_format),
             Report: report
             or Report(
                 title="AI in B2B Marketing",
@@ -125,7 +127,10 @@ def test_happy_path(use_llm, serp, intent):
     assert "## Sources" in out
     assert "1. [a title 1](https://example.com/a/1)" in out
     assert "4. [c title 1](https://example.com/c/1)" in out
-    assert fake.schemas_called() == ["RouteDecision", "QueryPlan", "Synthesis", "Report"]
+    assert fake.schemas_called() == [
+        "RouteDecision", "QueryPlan", "Synthesis", "PostResearchDecision", "Report"
+    ]
+    assert result["target_format"] == "report"
     # The synthesis prompt numbers sources from 1 in list order.
     assert "[4] c title 1" in fake.calls[2][1]
     _assert_citations_valid(result)

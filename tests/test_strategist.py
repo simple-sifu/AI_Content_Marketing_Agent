@@ -63,7 +63,9 @@ def test_research_report(use_llm, serp):
 
     assert result["intent"] == "research"
     assert result["errors"] == []
-    assert fake.schemas_called() == ["RouteDecision", "QueryPlan", "Synthesis", "Report"]
+    assert fake.schemas_called() == [
+        "RouteDecision", "QueryPlan", "Synthesis", "PostResearchDecision", "Report"
+    ]
     assert _headings(out) == [
         "# AI Reshapes B2B Marketing",
         "## Executive Summary",
@@ -104,20 +106,31 @@ def test_fallbacks_for_blank_title_and_uncited_summary(use_llm, serp):
     _assert_report_citations_valid(out, 3)
 
 
-@pytest.mark.parametrize(("intent", "writer"), [("blog", "blog writer"), ("linkedin", "LinkedIn writer")])
-def test_blog_or_linkedin_gets_report_with_note(use_llm, serp, intent, writer):
+def test_linkedin_gets_report_with_note(use_llm, serp):
     responses, _ = serp
     _three_sources(responses)
-    use_llm(_fake(intent))
+    use_llm(_fake("linkedin"))
 
     result = graph.invoke({"request": REQUEST})
     out = result["final_output"]
 
-    assert result["intent"] == intent
+    assert result["intent"] == "linkedin"
+    assert result["target_format"] == "report"
     assert [h.split(" ", 1)[0] for h in _headings(out)] == ["#", "##", "##", "##", "##"]
     notes = out.split("## Notes", 1)[1]
-    assert f"- The {writer} is not built yet, so this is the research report." in notes
+    assert "- The LinkedIn writer is not built yet, so this is the research report." in notes
     _assert_report_citations_valid(out, 3)
+
+
+def test_blog_intent_routed_to_report_has_no_writer_note(use_llm, serp):
+    responses, _ = serp
+    _three_sources(responses)
+    use_llm(_fake("blog"))  # router answers "report"
+
+    out = graph.invoke({"request": REQUEST})["final_output"]
+
+    assert "## Executive Summary" in out
+    assert "not built yet" not in out
 
 
 def test_search_problems_listed_in_notes(use_llm, serp):
@@ -165,8 +178,9 @@ def test_no_sources_no_results(use_llm, serp):
     _assert_no_sources_report(out)
     notes = out.split("## Notes", 1)[1]
     assert NO_RESULTS_NOTE in notes
-    assert "- The blog writer is not built yet" in notes
+    assert "not built yet" not in notes
     assert "Report" not in fake.schemas_called()
+    assert "PostResearchDecision" not in fake.schemas_called()
 
 
 def test_synthesis_failure_skips_strategist(use_llm, serp):
