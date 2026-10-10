@@ -101,7 +101,7 @@ def test_blog_with_no_sources_skips_router(use_llm, serp):
     out = result["final_output"]
 
     assert result["sources"] == []
-    assert "target_format" not in result
+    assert result["target_format"] == ""  # cleared at the start of every run
     assert "PostResearchDecision" not in fake.schemas_called()
     assert "BlogDraft" not in fake.schemas_called()
     assert out.startswith(f"# Research Report: {TOPIC}\n")

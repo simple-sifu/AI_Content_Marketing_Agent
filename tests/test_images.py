@@ -258,3 +258,32 @@ def test_reused_thread_clears_previous_image(use_llm, use_images):
 
     assert second["intent"] == "error"
     assert second["image_path"] == "" and second["image_model"] == ""
+
+
+def test_reused_thread_clears_target_format(use_llm, use_images, monkeypatch):
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    from content_agent import research
+    from content_agent.blog import BlogDraft
+    from content_agent.graph import build_graph
+    from tests.test_research import TOPIC as RESEARCH_TOPIC
+    from tests.test_research import _fake as research_fake
+    from tests.test_research import _results
+    from tests.test_validators import draft
+
+    monkeypatch.setenv("SERPAPI_API_KEY", "serp-key")
+    monkeypatch.setattr(research, "serpapi_search", lambda query, api_key: _results("a"))
+    threaded = build_graph(checkpointer=InMemorySaver())
+    config = {"configurable": {"thread_id": "fmt"}}
+    blog = research_fake("blog", target_format="blog")
+    blog.responses[BlogDraft] = draft(RESEARCH_TOPIC, mentions=4)
+    use_llm(blog)
+    first = threaded.invoke({"request": "Write a blog post about AI in B2B marketing"}, config)
+    assert first["target_format"] == "blog"
+
+    use_llm(_fake())
+    use_images([png_b64()])
+    second = threaded.invoke({"request": REQUEST}, config)
+
+    assert second["intent"] == "image"
+    assert second["target_format"] == ""
