@@ -11,18 +11,18 @@ import pytest
 from langchain_core.exceptions import OutputParserException
 from langchain_openai.chat_models.base import OpenAIRefusalError
 from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.graph import END
 from pydantic import ValidationError
 
 from content_agent import llm
 from content_agent.graph import build_graph, graph
+from content_agent.images import ImagePrompt
 from content_agent.router import (
     EMPTY_REQUEST_MESSAGE,
     RouteDecision,
     query_handler,
     route_after_query_handler,
 )
-from tests.conftest import FakeLLM
+from tests.conftest import FakeLLM, png_b64
 
 
 def _decision(use_llm, intent: str, topic: str) -> FakeLLM:
@@ -41,7 +41,7 @@ def _http_error(cls, status: int, secret: str):
         ("Give me an overview of AI in B2B marketing", "research", "AI in B2B marketing", "generate_queries"),
         ("Write a blog post about remote work tools", "blog", "remote work tools", "generate_queries"),
         ("LinkedIn post on our product launch", "linkedin", "our product launch", "generate_queries"),
-        ("Make an image of a sunrise over a city", "image", "sunrise over a city", END),
+        ("Make an image of a sunrise over a city", "image", "sunrise over a city", "image_generator"),
     ],
 )
 def test_classified_requests(use_llm, request_text, intent, topic, next_node):
@@ -51,26 +51,11 @@ def test_classified_requests(use_llm, request_text, intent, topic, next_node):
 
     assert result["intent"] == intent
     assert result["topic"] == topic
-    assert f"**Intent:** {intent}" in result["final_output"]
-    assert f"**Topic:** {topic}" in result["final_output"]
+    assert "final_output" not in result  # the next node writes it
     assert result["errors"] == []
     assert len(fake.calls) == 1
     assert request_text in fake.calls[0][1]
     assert route_after_query_handler(result) == next_node
-
-
-def test_image_success_ending_matches_design(use_llm):
-    fake = _decision(use_llm, "image", "sunrise over a city")
-
-    result = graph.invoke({"request": "Make an image of a sunrise over a city"})
-
-    assert result["final_output"] == (
-        "**Intent:** image\n**Topic:** sunrise over a city\n\n"
-        "The image generator is not built yet; this run stops after classification."
-    )
-    assert result["errors"] == []
-    assert "queries" not in result and "sources" not in result and "findings" not in result
-    assert fake.schemas_called() == ["RouteDecision"]
 
 
 @pytest.mark.parametrize("request_text", ["", "   "])
@@ -138,7 +123,7 @@ def test_missing_api_key_is_caught(monkeypatch):
     assert result["errors"] == ["query_handler: OpenAIError"]
 
 
-def test_thread_reuse_has_no_stale_errors(use_llm):
+def test_thread_reuse_has_no_stale_errors(use_llm, use_images):
     threaded = build_graph(checkpointer=InMemorySaver())
     config = {"configurable": {"thread_id": "t1"}}
 
@@ -146,7 +131,9 @@ def test_thread_reuse_has_no_stale_errors(use_llm):
     first = threaded.invoke({"request": "Write a blog post about remote work tools"}, config)
     assert first["errors"] == ["query_handler: AuthenticationError"]
 
-    _decision(use_llm, "image", "sunrise over a city")
+    fake = _decision(use_llm, "image", "sunrise over a city")
+    fake.responses[ImagePrompt] = ImagePrompt(prompt="A sunrise over a city skyline.")
+    use_images([png_b64()])
     second = threaded.invoke({"request": "Make an image of a sunrise over a city"}, config)
 
     assert second["errors"] == []

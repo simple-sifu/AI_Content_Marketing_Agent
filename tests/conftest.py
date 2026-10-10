@@ -64,3 +64,53 @@ def use_llm(monkeypatch):
         return fake
 
     return install
+
+
+def png_b64(color: str = "red") -> str:
+    """A real 4x4 PNG, base64-encoded, as the images API returns it."""
+    import base64
+    from io import BytesIO
+
+    from PIL import Image
+
+    buffer = BytesIO()
+    Image.new("RGB", (4, 4), color).save(buffer, format="PNG")
+    return base64.b64encode(buffer.getvalue()).decode()
+
+
+class FakeImages:
+    """Stands in for openai.OpenAI(): `images.generate(**kwargs).data[0].b64_json`.
+
+    `outcomes` gives one item per call (the last repeats): a base64 string, None (a
+    response with no data), or an exception to raise. Every call's kwargs are recorded."""
+
+    def __init__(self, outcomes: list):
+        self.outcomes = outcomes
+        self.calls: list[dict] = []
+        self.images = self
+
+    def generate(self, **kwargs):
+        from types import SimpleNamespace
+
+        self.calls.append(kwargs)
+        outcome = self.outcomes[min(len(self.calls), len(self.outcomes)) - 1]
+        if isinstance(outcome, Exception):
+            raise outcome
+        data = [] if outcome is None else [SimpleNamespace(b64_json=outcome)]
+        return SimpleNamespace(data=data)
+
+    def models(self) -> list[str]:
+        return [c["model"] for c in self.calls]
+
+
+@pytest.fixture
+def use_images(monkeypatch, tmp_path):
+    """Install a FakeImages client and save images under tmp_path/outputs."""
+    monkeypatch.setenv("IMAGE_OUTPUT_DIR", str(tmp_path / "outputs"))
+
+    def install(outcomes: list) -> FakeImages:
+        fake = FakeImages(outcomes)
+        monkeypatch.setattr(llm, "get_image_client", lambda: fake)
+        return fake
+
+    return install

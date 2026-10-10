@@ -1,4 +1,4 @@
-"""Single switch point for the chat model, plus the LLM error convention every node follows."""
+"""Single switch point for the chat model and the images client, plus the LLM error convention every node follows."""
 
 from __future__ import annotations
 
@@ -19,6 +19,12 @@ def get_llm(temperature: float = 0.2) -> ChatOpenAI:
     """Return the configured chat model. Constructed lazily so imports never need a key."""
     model = os.getenv("OPENAI_MODEL") or DEFAULT_MODEL
     return ChatOpenAI(model=model, temperature=temperature)
+
+
+def get_image_client() -> openai.OpenAI:
+    """Return the OpenAI client for image generation. Built lazily, like get_llm, so imports
+    never need a key (with none set, construction raises openai.OpenAIError)."""
+    return openai.OpenAI()
 
 
 def llm_error(node: str, exc: Exception) -> str:
