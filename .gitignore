@@ -2,3 +2,5 @@
 .venv/
 __pycache__/
 _bmad/render/
+.langgraph_api/
+.pytest_cache/

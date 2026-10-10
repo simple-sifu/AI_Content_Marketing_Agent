@@ -3,14 +3,14 @@ title: 'Core LangGraph content agent: router, deep research, content strategist'
 type: 'feature'
 ticket: ''
 created: '2026-10-10'
-status: 'ready-for-dev'
-baseline_revision: ''
+status: 'built'
+baseline_revision: '27c359a90b494074eaf0af6dc4b485fecbe57e71'
 route: 'full'
 route_source: 'auto'
 risk: 'low'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context: []
 ---
@@ -58,15 +58,15 @@ Greenfield: the project holds only `.env`, `skills-lock.json`, `.claude/`, `_bma
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `pyproject.toml`, `.python-version`, `.gitignore` -- uv project; deps `langgraph`, `langchain-openai`, `langchain-core`, `google-search-results`, `python-dotenv`, `pydantic`; dev `pytest`, `langgraph-cli[inmem]`; ignore `.env`, `.venv`, `__pycache__`, `_bmad/render` -- reproducible env
-- [ ] `langgraph.json` -- graph `content_agent` → `./content_agent/graph.py:graph`, `env: .env`, deps `["."]` -- `langgraph dev` + Cloud-ready
-- [ ] `content_agent/state.py` -- `ContentState` TypedDict: `request`, `intent`, `topic`, `queries`, `sources` (list of {title,url,snippet}), `findings`, `target_format`, `final_output`, `errors` -- shared contract for later agents
-- [ ] `content_agent/llm.py` -- `get_llm()` returning `ChatOpenAI(model=OPENAI_MODEL, temperature=…)` -- single model switch point
-- [ ] `content_agent/router.py` -- `query_handler` (structured `RouteDecision{intent: research|blog|linkedin|image, topic}`) and `post_research_router` (picks `target_format`; only `report` is wired now) -- both routing passes from the brief
-- [ ] `content_agent/research.py` -- `generate_queries`, `run_searches` (SerpAPI organic results, per-query try/except, dedupe by URL), `synthesize` (findings with `[n]` citations) -- Deep Research agent
-- [ ] `content_agent/strategist.py` -- `content_strategist` formats markdown: title, executive summary, key findings, sources -- Content Strategist agent
-- [ ] `content_agent/graph.py` -- build and compile `graph` with conditional edges -- entry point
-- [ ] `tests/test_graph.py` -- fake LLM + mocked SerpAPI covering every I/O matrix row -- offline verification
+- [x] `pyproject.toml`, `.python-version`, `.gitignore` -- uv project; deps `langgraph`, `langchain-openai`, `langchain-core`, `google-search-results`, `python-dotenv`, `pydantic`; dev `pytest`, `langgraph-cli[inmem]`; ignore `.env`, `.venv`, `__pycache__`, `_bmad/render` -- reproducible env
+- [x] `langgraph.json` -- graph `content_agent` → `./content_agent/graph.py:graph`, `env: .env`, deps `["."]` -- `langgraph dev` + Cloud-ready
+- [x] `content_agent/state.py` -- `ContentState` TypedDict: `request`, `intent`, `topic`, `queries`, `sources` (list of {title,url,snippet}), `findings`, `target_format`, `final_output`, `errors` -- shared contract for later agents
+- [x] `content_agent/llm.py` -- `get_llm()` returning `ChatOpenAI(model=OPENAI_MODEL, temperature=…)` -- single model switch point
+- [x] `content_agent/router.py` -- `query_handler` (structured `RouteDecision{intent: research|blog|linkedin|image, topic}`) and `post_research_router` (picks `target_format`; only `report` is wired now) -- both routing passes from the brief
+- [x] `content_agent/research.py` -- `generate_queries`, `run_searches` (SerpAPI organic results, per-query try/except, dedupe by URL), `synthesize` (findings with `[n]` citations) -- Deep Research agent
+- [x] `content_agent/strategist.py` -- `content_strategist` formats markdown: title, executive summary, key findings, sources -- Content Strategist agent
+- [x] `content_agent/graph.py` -- build and compile `graph` with conditional edges -- entry point
+- [x] `tests/test_graph.py` -- fake LLM + mocked SerpAPI covering every I/O matrix row -- offline verification
 
 **Acceptance Criteria:**
 - Given the venv is synced, when `uv run langgraph dev` starts, then the `content_agent` graph loads in LangGraph Studio without errors.
@@ -75,9 +75,27 @@ Greenfield: the project holds only `.env`, `skills-lock.json`, `.claude/`, `_bma
 
 ## Implementation Notes
 
+- Added dev dependency `grandalf`: required by `graph.get_graph().draw_ascii()` in the Verification commands.
+- `ContentState.errors` uses an `operator.add` reducer so each node appends; `findings` is `{summary, key_findings}`.
+- Citation guarantee is enforced in code, not just the prompt: `synthesize` strips `[n]` markers outside `1..len(sources)` and drops key findings left with no valid citation. The Sources list numbers every deduplicated source, so `[n]` always maps to a URL.
+- Missing `SERPAPI_API_KEY` is detected in `run_searches` (after query generation); the strategist then returns only a configuration error naming the variable.
+- Nodes call `llm.get_llm()` through the module so tests monkeypatch one place; `serpapi.GoogleSearch` is imported lazily inside `serpapi_search`. Tests block `socket.connect` to prove they stay offline.
+- Verified: `uv run pytest -q` (12 passed), draw_ascii prints the graph, `langgraph dev` registers `content_agent`, and one live run via `/runs/wait` returned a cited report with every `[n]` mapped.
+- Review pass 1 patches (supersede earlier notes where they differ): `errors` is now a plain `list[str]` written only by `run_searches` (no `operator.add`); search error text redacts the SerpAPI key; an uncited summary becomes `UNCITED_SUMMARY`; the strategist uses `NO_SOURCES_SUMMARY` only when there are no sources. Test count 12 -> 15.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+### Pass 1 (lens: quick) — high 1, medium 2, low 2, false 0, maybe-false 0
+
+| # | Finding | Verdict | Route | Evidence / action |
+|---|---------|---------|-------|-------------------|
+| 1 | `research.py` run_searches puts raw exception text in `errors`, printed in report; SerpAPI key leaks on network errors | high | patch | Reproduced: `requests.ConnectionError` str contains `api_key=<key>`; google-search-results sends key as query param. Fix: redact key before appending + test. |
+| 2 | `research.py` synthesize does not enforce citations on the summary | medium | patch | Only `_clean_citations` applied; no `_has_citation` check, unlike key findings. Fix: replace uncited summary with a non-claim line + test. |
+| 3 | `strategist.py` shows "No sources were found" above a non-empty Sources list when summary is empty | low | patch | `summary or NO_SOURCES_SUMMARY` ignores sources; direct correction. |
+| 4 | `state.py` `operator.add` on `errors` accumulates across runs on a checkpointed thread | medium | patch | Threads in langgraph dev merge new input via reducers; only `run_searches` writes `errors`, so reducer is unneeded. Fix: plain list. |
+| 5 | Missing-key check runs after the query-generation LLM call | low | reject | Real, but only reachable with a misconfigured env, and the fix adds a guard; I/O row (clear message naming the variable) is met. |
 
 ## Design Notes
 
