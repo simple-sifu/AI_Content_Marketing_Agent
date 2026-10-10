@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import math
 import os
 import re
+from datetime import date
 
 import openai
 from langchain_core.exceptions import OutputParserException
@@ -29,8 +31,15 @@ QUERY_PROMPT = """You are a research strategist. Write exactly {n} distinct Goog
 queries that together give broad, current, factual coverage of the topic below
 (e.g. overview, recent trends/statistics, practical examples or expert views).
 
+Today's date is {today}. For time-sensitive queries (trends, statistics, forecasts) use the
+current year; never put a past year in a query unless the topic itself names one.
+
 Topic: {topic}
 """
+
+# Words that say nothing about relevance; the rest of the topic must show up in a result.
+_STOPWORDS = frozenset("a an and the of in on for to with about how what vs".split())
+_EDGE_PUNCTUATION = ".,;:!?\"'()[]{}"
 
 SYNTHESIS_PROMPT = """You are a research analyst. Using ONLY the numbered sources below,
 write a research synthesis about: {topic}
@@ -91,6 +100,33 @@ def _pad_queries(candidates: list[str], topic: str) -> list[str]:
     return queries
 
 
+def _today() -> str:
+    """Today's date (ISO); a function so tests can pin it."""
+    return date.today().isoformat()
+
+
+def topic_keywords(topic: str) -> list[str]:
+    """Lowercase topic words minus stopwords; internal punctuation stays (b2b, node.js, c++)."""
+    words = (w.strip(_EDGE_PUNCTUATION) for w in (topic or "").lower().split())
+    words = (re.sub(r"['’]s$", "", w) for w in words)  # possessive: "AI's" -> "ai"
+    return list(dict.fromkeys(w for w in words if w and w not in _STOPWORDS))
+
+
+def _keyword_pattern(keyword: str) -> str:
+    """Whole-word match; a hyphenated keyword also matches with a space ("ai-powered" ~ "AI powered")."""
+    parts = [re.escape(x) for x in keyword.split("-") if x]
+    return r"(?<!\w)" + r"[\s\-]+".join(parts) + r"(?!\w)"
+
+
+def _on_topic(result: dict, keywords: list[str]) -> bool:
+    """At least half the topic keywords appear as whole words in the title or snippet."""
+    if not keywords:
+        return True
+    text = f"{result.get('title') or ''} {result.get('snippet') or ''}".lower()
+    hits = sum(1 for k in keywords if re.search(_keyword_pattern(k), text))
+    return hits >= math.ceil(len(keywords) / 2)
+
+
 def generate_queries(state: ContentState) -> dict:
     node = "generate_queries"
     topic = _topic(state)
@@ -98,7 +134,7 @@ def generate_queries(state: ContentState) -> dict:
     reset = {"queries": [], "sources": [], "findings": Findings(summary="", key_findings=[])}
     try:
         structured = llm.get_llm().with_structured_output(QueryPlan)
-        plan = structured.invoke(QUERY_PROMPT.format(n=NUM_QUERIES, topic=topic))
+        plan = structured.invoke(QUERY_PROMPT.format(n=NUM_QUERIES, topic=topic, today=_today()))
         if not isinstance(plan, QueryPlan):
             raise OutputParserException("structured output did not match QueryPlan")
     except _LLM_ERRORS as exc:
@@ -140,6 +176,7 @@ def run_searches(state: ContentState) -> dict:
 
     sources: list[Source] = []
     seen: set[str] = set()
+    keywords = topic_keywords(_topic(state))
     for query in state.get("queries") or []:
         try:
             results = serpapi_search(query, api_key)
@@ -148,7 +185,8 @@ def run_searches(state: ContentState) -> dict:
             continue
         for r in (results or [])[:RESULTS_PER_QUERY]:
             url = (r.get("link") or "").strip()
-            if not url or url in seen:
+            # Off-topic results (e.g. "Case IH" for a "case studies" query) never become sources.
+            if not url or url in seen or not _on_topic(r, keywords):
                 continue
             seen.add(url)
             sources.append(

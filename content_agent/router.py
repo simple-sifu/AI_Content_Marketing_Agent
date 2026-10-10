@@ -39,9 +39,9 @@ User request:
 {request}
 """
 
-# Image fields are written only on image runs; every run starts by clearing them so a reused
-# `langgraph dev` thread never shows an earlier run's image.
-_IMAGE_RESET = {"image_prompt": "", "image_path": "", "image_model": ""}
+# Fields only some runs write (image fields, the post-research decision); every run starts by
+# clearing them so a reused `langgraph dev` thread never shows an earlier run's values.
+_RUN_RESET = {"image_prompt": "", "image_path": "", "image_model": "", "target_format": ""}
 
 
 class RouteDecision(BaseModel):
@@ -54,13 +54,13 @@ class RouteDecision(BaseModel):
 
 
 def query_handler(state: ContentState) -> dict:
-    """Every return writes intent, topic, errors and clears the image fields so a reused thread only ever shows this
+    """Every return writes intent, topic, errors and clears per-run fields (_RUN_RESET) so a reused thread only ever shows this
     run's result; empty and error runs end here and also write final_output. Classified runs
     continue to a node that writes final_output."""
     request = (state.get("request") or "").strip()
     if not request:
         return {
-            **_IMAGE_RESET,
+            **_RUN_RESET,
             "intent": "empty",
             "topic": "",
             "final_output": EMPTY_REQUEST_MESSAGE,
@@ -77,7 +77,7 @@ def query_handler(state: ContentState) -> dict:
     except (openai.OpenAIError, ValueError, OpenAIRefusalError) as exc:
         message = llm.llm_error(NODE_NAME, exc)
         return {
-            **_IMAGE_RESET,
+            **_RUN_RESET,
             "intent": "error",
             "topic": "",
             "final_output": message,
@@ -85,7 +85,7 @@ def query_handler(state: ContentState) -> dict:
         }
 
     return {
-        **_IMAGE_RESET,
+        **_RUN_RESET,
         "intent": decision.intent,
         "topic": decision.topic.strip() or request,
         "errors": [],

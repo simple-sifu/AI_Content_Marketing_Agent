@@ -36,7 +36,8 @@ QUERIES = ["AI B2B marketing overview", "AI B2B marketing statistics 2026", "AI 
 
 def _results(prefix: str, n: int = 2) -> list[dict]:
     return [
-        {"title": f"{prefix} title {i}", "link": f"https://example.com/{prefix}/{i}", "snippet": f"{prefix} snippet {i}"}
+        # The snippet names the topic so the relevance filter keeps the result.
+        {"title": f"{prefix} title {i}", "link": f"https://example.com/{prefix}/{i}", "snippet": f"{prefix} snippet {i} on {TOPIC}"}
         for i in range(1, n + 1)
     ]
 
@@ -293,7 +294,7 @@ def test_bad_citations_are_cleaned(use_llm, serp):
 def test_bracketed_title_is_not_a_citation(use_llm, serp):
     responses, _ = serp
     responses[QUERIES[0]] = [
-        {"title": "Best AI tools [2025] [3]", "link": "https://example.com/x", "snippet": "s"}
+        {"title": "Best AI tools [2025] [3]", "link": "https://example.com/x", "snippet": f"For {TOPIC}"}
     ]
     fake = use_llm(_fake(synthesis=Synthesis(summary="Fact [1].", key_findings=["Point [1]."])))
 
@@ -409,3 +410,87 @@ def test_serpapi_search_maps_responses(monkeypatch, payload, expected):
         assert research.serpapi_search("q", SERP_KEY) == expected
     assert seen["q"] == "q" and seen["api_key"] == SERP_KEY
     assert seen["timeout"] == research.SEARCH_TIMEOUT_SECONDS
+
+
+# --- Story 8: dated queries and the relevance filter ------------------------------------
+
+
+def test_query_prompt_has_todays_date(use_llm, serp, monkeypatch):
+    monkeypatch.setattr(research, "_today", lambda: "2026-10-10")
+    fake = use_llm(_fake())
+
+    graph.invoke({"request": REQUEST})
+
+    query_prompt = dict(fake.calls)["QueryPlan"]
+    assert "Today's date is 2026-10-10." in query_prompt
+    assert "never put a past year in a query" in query_prompt
+
+
+def test_off_topic_results_are_dropped(use_llm, serp):
+    responses, _ = serp
+    responses[QUERIES[0]] = [
+        {"title": "Case IH tractors", "link": "https://caseih.example", "snippet": "Farm equipment and parts."},
+        {"title": "AI tools for B2B marketing teams", "link": "https://good.example", "snippet": "A guide."},
+        {"title": "case.edu admissions", "link": "https://case.example", "snippet": "Apply to Case Western."},
+    ]
+    use_llm(_fake())
+
+    result = graph.invoke({"request": REQUEST})
+
+    assert [s["url"] for s in result["sources"]] == ["https://good.example"]
+    assert result["errors"] == []
+    # The kept result is source [1]; numbering stays contiguous after the drops.
+    assert "1. [AI tools for B2B marketing teams](https://good.example)" in result["final_output"]
+    assert {int(m) for m in re.findall(r"\[(\d+)\]", result["final_output"])} <= {1}
+
+
+def test_one_word_topic_filter(use_llm, serp):
+    responses, _ = serp
+    responses[QUERIES[0]] = [
+        {"title": "Kubernetes basics", "link": "https://k8s.example", "snippet": "Pods and nodes."},
+        {"title": "Cooking pasta", "link": "https://pasta.example", "snippet": "Boil water."},
+    ]
+    fake = use_llm(_fake())
+    fake.responses[RouteDecision] = RouteDecision(intent="research", topic="kubernetes")
+
+    result = graph.invoke({"request": "Research kubernetes"})
+
+    assert [s["url"] for s in result["sources"]] == ["https://k8s.example"]
+
+
+def test_all_off_topic_goes_to_no_sources_report(use_llm, serp):
+    responses, _ = serp
+    responses[QUERIES[0]] = [{"title": "Case IH", "link": "https://caseih.example", "snippet": "Tractors."}]
+    fake = use_llm(_fake())
+
+    result = graph.invoke({"request": REQUEST})
+
+    assert result["sources"] == []
+    assert result["errors"] == []
+    assert "Synthesis" not in fake.schemas_called()
+    assert result["final_output"].startswith(f"# Research Report: {TOPIC}\n")
+
+
+@pytest.mark.parametrize(
+    ("topic", "expected"),
+    [
+        ("AI in B2B marketing", ["ai", "b2b", "marketing"]),
+        ("Node.js vs. Deno", ["node.js", "deno"]),
+        ("C++ (for beginners)", ["c++", "beginners"]),
+        ("the of and", []),
+        ("AI's role in marketing", ["ai", "role", "marketing"]),
+        ("AI-powered marketing", ["ai-powered", "marketing"]),
+    ],
+)
+def test_topic_keywords(topic, expected):
+    assert research.topic_keywords(topic) == expected
+
+
+def test_no_keywords_keeps_every_result():
+    assert research._on_topic({"title": "anything", "snippet": ""}, [])
+
+
+@pytest.mark.parametrize("text", ["AI-powered marketing tools", "AI powered marketing tools"])
+def test_hyphenated_keyword_matches_space_or_hyphen(text):
+    keywords = research.topic_keywords("AI-powered marketing")
+    assert research._on_topic({"title": text, "snippet": ""}, keywords)

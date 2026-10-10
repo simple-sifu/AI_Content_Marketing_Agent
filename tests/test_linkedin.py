@@ -104,7 +104,7 @@ def test_linkedin_with_no_sources_skips_router(use_llm, serp):
     result = graph.invoke({"request": LINKEDIN_REQUEST})
 
     assert result["sources"] == []
-    assert "target_format" not in result
+    assert result["target_format"] == ""  # cleared at the start of every run
     assert "PostResearchDecision" not in fake.schemas_called()
     assert "LinkedInDraft" not in fake.schemas_called()
     assert result["final_output"].startswith(f"# Research Report: {TOPIC}\n")
