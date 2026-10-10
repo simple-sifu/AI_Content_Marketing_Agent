@@ -1,0 +1,87 @@
+[[entry]]
+id = 1
+type = "story"
+title = "Project scaffold and Query Handler"
+description = "Stands up the uv project, langgraph.json, a .env.example listing OPENAI_API_KEY and OPENAI_MODEL plus optional LangSmith tracing (LANGSMITH_API_KEY, LANGSMITH_TRACING, LANGSMITH_PROJECT; runs work with them unset), the shared ContentState, a get_llm() switch reading OPENAI_MODEL, the LLM error convention every later node follows (OpenAI failures caught into a per-run errors list, not an accumulating reducer, with a readable message instead of a crash), and the Query Handler node that classifies a request as research, blog, linkedin, or image with a topic (empty requests ask for a topic), ending with a message that names the intent and topic; later entries replace that ending per format."
+verify = "Offline tests with a fake LLM pass for each intent, the empty request, and a failing LLM call, and in langgraph dev a request returns its classified intent and topic; with tracing enabled the run appears in the LangSmith project."
+covers = ["R1", "R8"]
+after = []
+hitl = true                 # the user puts a real OpenAI key in .env and runs langgraph dev for the live check
+risk = "low"
+
+[[entry]]
+id = 2
+type = "story"
+title = "Deep Research agent"
+description = "Routes research, blog, and linkedin intents from entry 1's Query Handler into a Deep Research agent, following entry 1's LLM error convention, that generates 3 strategic queries, runs them through SerpAPI with per-query failure isolation and key redaction, dedupes sources, adds SERPAPI_API_KEY to .env.example, and writes cited findings to ContentState.findings and .sources (the handoff entries 3-5 consume); those requests end with the cited findings as plain text until entry 3's report replaces that ending."
+verify = "Offline tests with a fake LLM and mocked SerpAPI prove 3 queries, partial-failure handling, no key in any error text, and that every [n] in the findings maps to a source; a live run in langgraph dev fills findings and sources."
+covers = ["R3"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 3
+type = "story"
+title = "Content Strategist report"
+description = "Adds the Content Strategist node (following entry 1's LLM error convention) that formats entry 2's findings and sources into a markdown research report (title, executive summary, key findings, sources, notes) as the output for research intents, and the default when no format agent applies."
+verify = "Offline tests prove the report's sections, that every [n] maps to a listed source, and the no-sources case; a live research request in langgraph dev returns the report."
+covers = ["R7"]
+after = [2]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 4
+type = "story"
+title = "SEO Blog Writer and post-research routing"
+description = "Adds the post-research router as an LLM decision between blog and report, and the SEO Blog Writer node (both following entry 1's LLM error convention) that turns entry 2's cited findings into a long-form markdown post with one H1, H2/H3 sections, a meta description, primary-keyword density of 1-2% (the keyword is entry 1's topic), and [n] citations into entry 2's sources."
+verify = "Offline tests prove routing picks blog for blog requests and a validator confirms H1/H2/H3, meta description, density, and that every [n] maps to a source; a live blog request in langgraph dev passes the same validator."
+covers = ["R2", "R4"]
+after = [3]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 5
+type = "story"
+title = "LinkedIn Writer"
+description = "Adds linkedin to entry 4's post-research router and a LinkedIn Writer node (following entry 1's LLM error convention) that turns entry 2's findings into a 1300-1600 character post with hook, story, CTA, and 8-12 hashtags, with no [n] markers in the post and a short Sources list of entry 2's URLs after it, outside the character count."
+verify = "Offline tests prove routing picks linkedin and a validator confirms length (excluding the Sources list), parts, hashtag count, and that every listed source URL came from entry 2; a live LinkedIn request passes the same validator."
+covers = ["R2", "R5"]
+after = [4]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 6
+type = "story"
+title = "Image Generator with model fallback chain"
+description = "Routes image intents from entry 1's Query Handler straight to a new Image Generator node (no research), which enhances the prompt with the LLM (following entry 1's LLM error convention), tries gpt-image-1 then DALL-E 3 then DALL-E 2 on refusal or error, saves the result with Pillow under an outputs/ folder, and reports the file path and the model that answered."
+verify = "Offline tests with a mocked OpenAI images client prove each fallback step and the saved PNG; a live image request in langgraph dev saves an image and names the model used."
+covers = ["R1", "R6"]
+after = [5]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 7
+type = "story"
+title = "LangGraph Cloud-ready packaging and docs"
+description = "Makes the project deployable: langgraph.json and pyproject carry every runtime dependency added by entries 1-6, the .env.example from entries 1-2 is checked complete, and a README covers setup, langgraph dev, and deploying to LangGraph Cloud."
+verify = "uv run langgraph build -t content-agent succeeds and a fresh clone following the README runs langgraph dev."
+covers = ["R8"]
+after = [6]
+hitl = true
+risk = "low"
+
+[[entry]]
+id = 8
+type = "story"
+title = "Refactor sweep"
+description = "Cleanup across the epic, scoped when it starts from the entry plans and the review findings deferred during the epic."
+verify = "uv run pytest passes and the swept findings are closed or recorded."
+covers = []
+after = [1, 2, 3, 4, 5, 6, 7]
+hitl = false
+risk = "low"
