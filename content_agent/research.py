@@ -22,6 +22,7 @@ MISSING_SERPAPI_KEY = (
 )
 NO_SOURCES_SUMMARY = "No sources were found for this topic, so no findings can be reported."
 UNCITED_SUMMARY = "See the cited key findings below."
+# Key Findings placeholder in the report when no finding survived citation cleaning.
 NO_FINDINGS_LINE = "No findings could be tied to a listed source."
 
 QUERY_PROMPT = """You are a research strategist. Write exactly {n} distinct Google search
@@ -176,30 +177,13 @@ def _has_citation(text: str) -> bool:
     return bool(_CITATION.search(text))
 
 
-def _render(topic: str, findings: Findings, sources: list[Source], errors: list[str]) -> str:
-    """Interim ending until the report formatter (entry 3) replaces it."""
-    parts = [f"## Research: {topic}", findings["summary"]]
-    if sources:
-        bullets = findings["key_findings"] or [NO_FINDINGS_LINE]
-        parts.append("### Key findings\n" + "\n".join(f"- {f}" for f in bullets))
-        parts.append(
-            "### Sources\n"
-            + "\n".join(f"{i}. {s['title']} — {s['url']}" for i, s in enumerate(sources, 1))
-        )
-    if errors:
-        parts.append("### Search problems\n" + "\n".join(f"- {e}" for e in errors))
-    return "\n\n".join(parts)
-
-
 def synthesize(state: ContentState) -> dict:
     node = "synthesize"
     sources = list(state.get("sources") or [])
-    errors = list(state.get("errors") or [])
     topic = _topic(state)
 
     if not sources:  # nothing to synthesize: no LLM call
-        findings = Findings(summary=NO_SOURCES_SUMMARY, key_findings=[])
-        return {"findings": findings, "final_output": _render(topic, findings, [], errors)}
+        return {"findings": Findings(summary=NO_SOURCES_SUMMARY, key_findings=[])}
 
     numbered = "\n\n".join(
         f"[{i}] {s['title']}\nURL: {s['url']}\n{s['snippet']}" for i, s in enumerate(sources, 1)
@@ -220,5 +204,4 @@ def synthesize(state: ContentState) -> dict:
     key_findings = [
         f for f in (_clean_citations(k or "", n) for k in result.key_findings or []) if _has_citation(f)
     ]
-    findings = Findings(summary=summary, key_findings=key_findings)
-    return {"findings": findings, "final_output": _render(topic, findings, sources, errors)}
+    return {"findings": Findings(summary=summary, key_findings=key_findings)}
