@@ -99,6 +99,8 @@ How to fix common failures:
 - Too few words: expand each section with more cited detail, examples and practical
   tips; aim for at least {min_words} words, without adding keyword mentions.
 - meta_description length: count characters; aim for about 145.
+- Too few inline citations: end every factual sentence with the [n] of the source it
+  comes from, in every section, and draw on several different sources.
 """
 
 
