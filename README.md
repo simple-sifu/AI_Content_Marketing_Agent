@@ -1,5 +1,7 @@
 # AI Content Marketing Agent
 
+**[See it in action →](https://simple-sifu.github.io/AI_Content_Marketing_Agent/)** Real, unedited outputs for all four formats: a research report, an SEO blog post, a LinkedIn post and an image.
+
 A LangGraph agent that turns a single request into content you can publish. Ask for research, a blog post, a LinkedIn post or an image, and it sends the request to the right specialist:
 
 | Ask for | You get |
