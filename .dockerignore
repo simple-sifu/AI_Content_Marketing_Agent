@@ -1,0 +1,16 @@
+# `langgraph build` copies this folder into the image; keep secrets and local files out.
+.env
+.env.*
+!.env.example
+.venv/
+outputs/
+.git/
+.gitignore
+.langgraph_api/
+.pytest_cache/
+.ruff_cache/
+**/__pycache__/
+.claude/
+_bmad/
+_bmad-output/
+skills-lock.json
