@@ -34,7 +34,7 @@ def make_body(
     keyword: str,
     total_words: int = 1000,
     mentions: int = 5,
-    cite: str = "[1]",
+    cite: str = "[1][2]",
     headings: list[str] | None = None,
 ) -> str:
     """A markdown body of exactly `total_words` words with `mentions` exact keyword phrases."""
@@ -52,7 +52,9 @@ def make_body(
     for i, start in enumerate(range(0, len(items), size)):
         if i < len(headings):
             parts.append(headings[i])
-        parts.append(" ".join(items[start : start + size]) + f" {cite}.")
+        chunk = items[start : start + size]
+        half = len(chunk) // 2  # cite mid-paragraph and at the end, as a real post would
+        parts.append(" ".join(chunk[:half]) + f" {cite}. " + " ".join(chunk[half:]) + f" {cite}.")
     return "\n\n".join(parts)
 
 
@@ -183,9 +185,9 @@ def test_minimum_body_words():
     assert validate_blog(post, SOURCES, KEYWORD) == []
 
 
-@pytest.mark.parametrize("cite", ["[3]", "[0]", "[1][99]"])
-def test_citations_must_map_to_sources(cite):
-    post = make_post(body=make_body(KEYWORD, cite=cite))
+@pytest.mark.parametrize("bad", ["[3]", "[0]", "[99]"])
+def test_citations_must_map_to_sources(bad):
+    post = make_post(body=make_body(KEYWORD, cite=f"[1][2]{bad}"))
     failures = validate_blog(post, SOURCES, KEYWORD)
     assert len(failures) == 1 and "do not map to a listed source" in failures[0]
 
@@ -387,3 +389,39 @@ def test_linkedin_too_many_sources():
 def test_linkedin_missing_sources_block():
     post = make_linkedin().split("\n\nSources:")[0]
     assert validate_linkedin(post, SOURCES) == ["The post must end with a 'Sources:' list of URLs."]
+
+
+@pytest.mark.parametrize(
+    ("cite", "ok"),
+    [
+        ("", False),  # no inline citations at all (the live 2026-10-10 case)
+        ("[1]", False),  # enough markers, but only one source
+        ("[1][2]", True),
+    ],
+)
+def test_body_must_cite_sources_inline(cite, ok):
+    body = make_body(KEYWORD, cite=cite) if cite else make_body(KEYWORD, cite="").replace(" .", ".")
+    failures = validate_blog(make_post(body=body), SOURCES, KEYWORD)
+    cite_failures = [f for f in failures if "inline citation" in f]
+    assert (cite_failures == []) == ok
+    if not ok:
+        assert "needs at least 5 citations to at least 2 different sources" in cite_failures[0]
+
+
+def test_one_source_needs_only_one_distinct_source():
+    one_source = SOURCES[:1]
+    post = make_post(body=make_body(KEYWORD, cite="[1]"), sources=one_source)
+    assert not any("inline citation" in f for f in validate_blog(post, one_source, KEYWORD))
+
+
+@pytest.mark.parametrize(
+    ("words", "markers", "ok"),
+    [(1000, 4, False), (1000, 5, True), (1400, 6, False), (1400, 7, True), (800, 3, False), (800, 4, True), (500, 2, False), (500, 3, True)],
+)
+def test_citation_minimum_boundary(words, markers, ok):
+    # Citation markers don't count as words, so the body stays exactly `words` long.
+    mentions = max(1, round(1.5 * words / 100 / 3))
+    body = make_body(KEYWORD, total_words=words, mentions=mentions, cite="").replace(" .", ".")
+    body += "\n\n" + " ".join(f"[{1 + i % 2}]" for i in range(markers))
+    failures = [f for f in validate_blog(make_post(body=body), SOURCES, KEYWORD) if "inline citation" in f]
+    assert (failures == []) == ok

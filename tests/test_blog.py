@@ -151,7 +151,7 @@ def test_still_invalid_after_revisions(use_llm, serp):
 def test_bad_citations_and_stray_h1_are_fixed(use_llm, serp):
     responses, _ = serp
     _three_sources(responses)
-    body = make_body(TOPIC, mentions=4, cite="[2][99]", headings=["# Stray", "### Sub", "## Two"])
+    body = make_body(TOPIC, mentions=4, cite="[1][2][99]", headings=["# Stray", "### Sub", "## Two"])
     stray = BlogDraft(title="# Guide [1]", meta_description=META[:-7] + " [9] now.", body=body)
     use_llm(_blog_fake(stray))
 

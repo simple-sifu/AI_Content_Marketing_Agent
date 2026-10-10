@@ -30,6 +30,12 @@ META_MIN, META_MAX = 120, 160
 MIN_BODY_WORDS = 800
 DENSITY_MIN, DENSITY_MAX = 1.0, 2.0
 SOURCES_HEADING = "## Sources"
+# Inline citations: at least one [n] per full WORDS_PER_CITATION body words (floor, so a
+# 1,199-word body needs 5; never fewer than MIN_CITATIONS), spread over at least
+# min(MIN_CITED_SOURCES, number of sources) sources. Repeated markers count.
+WORDS_PER_CITATION = 200
+MIN_CITATIONS = 3
+MIN_CITED_SOURCES = 2
 
 _WORD = re.compile(r"\w+(?:['’]\w+)*")
 _H1 = re.compile(r"^# \S")
@@ -174,6 +180,16 @@ def validate_blog(post: str, sources: list, keyword: str) -> list[str]:
             )
 
     n = len(sources or [])
+    body_cites = [int(m) for m in _CITATION.findall(body) if 1 <= int(m) <= n]
+    need = max(MIN_CITATIONS, words // WORDS_PER_CITATION)
+    need_sources = min(MIN_CITED_SOURCES, n)
+    if len(body_cites) < need or len(set(body_cites)) < need_sources:
+        failures.append(
+            f"The body has {len(body_cites)} inline citation(s) to {len(set(body_cites))} "
+            f"source(s); it needs at least {need} citations to at least {need_sources} "
+            f"different sources (one per {WORDS_PER_CITATION} words)."
+        )
+
     # Every marker outside the Sources list (front matter, title, body) must map to a source.
     cited = "\n".join([front or "", *lines[: _sources_index(lines)]])
     bad = sorted({int(m) for m in _CITATION.findall(cited) if not 1 <= int(m) <= n})
