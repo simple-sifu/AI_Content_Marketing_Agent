@@ -1,4 +1,4 @@
-"""Query Handler: classifies the request and extracts its topic."""
+"""Query Handler: classifies the request and extracts its topic; routes what comes next."""
 
 from __future__ import annotations
 
@@ -7,12 +7,14 @@ from typing import Literal
 import openai
 from langchain_core.exceptions import OutputParserException
 from langchain_openai.chat_models.base import OpenAIRefusalError
+from langgraph.graph import END
 from pydantic import BaseModel, Field
 
 from content_agent import llm
 from content_agent.state import ContentState
 
 NODE_NAME = "query_handler"
+RESEARCH_INTENTS = frozenset({"research", "blog", "linkedin"})
 
 EMPTY_REQUEST_MESSAGE = (
     "Please tell me what topic you would like content about, for example: "
@@ -96,3 +98,8 @@ def query_handler(state: ContentState) -> dict:
         ),
         "errors": [],
     }
+
+
+def route_after_query_handler(state: ContentState) -> str:
+    """Research, blog and LinkedIn requests go to Deep Research; everything else ends."""
+    return "generate_queries" if state.get("intent") in RESEARCH_INTENTS else END
