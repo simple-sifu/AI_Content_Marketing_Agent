@@ -1,7 +1,8 @@
 """Graph entry point (referenced by langgraph.json as content_agent.graph:graph).
 
 START -> query_handler --(research | blog | linkedin)--> generate_queries
-                       \\--(image | empty | error)------> END
+                       |--(image)--------------------> image_generator -> END
+                       \\--(empty | error)------------> END
 
 generate_queries --(ok)--> run_searches -> synthesize
                  \\--(intent=error)--> END
@@ -16,7 +17,8 @@ synthesize --(ok, sources)----> post_research_router --(blog)------> blog_writer
 post_research_router picks blog, linkedin or report. blog_writer writes the SEO blog post,
 linkedin_writer the LinkedIn post, content_strategist the markdown research report, each as
 final_output. A run with no sources never gets a blog or LinkedIn post: it goes straight to
-the strategist's no-sources report.
+the strategist's no-sources report. image_generator skips research: it enhances the
+prompt, tries gpt-image-1 -> DALL-E 3 -> DALL-E 2 and saves the first image as a PNG.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from __future__ import annotations
 from langgraph.graph import END, START, StateGraph
 
 from content_agent.blog import blog_writer
+from content_agent.images import image_generator
 from content_agent.linkedin import linkedin_writer
 from content_agent.research import generate_queries, run_searches, synthesize
 from content_agent.router import (
@@ -59,10 +62,11 @@ def build_graph(checkpointer=None):
     builder.add_node("blog_writer", blog_writer)
     builder.add_node("linkedin_writer", linkedin_writer)
     builder.add_node("content_strategist", content_strategist)
+    builder.add_node("image_generator", image_generator)
 
     builder.add_edge(START, "query_handler")
     builder.add_conditional_edges(
-        "query_handler", route_after_query_handler, ["generate_queries", END]
+        "query_handler", route_after_query_handler, ["generate_queries", "image_generator", END]
     )
     builder.add_conditional_edges(
         "generate_queries", _end_on_error("run_searches"), ["run_searches", END]
@@ -82,6 +86,7 @@ def build_graph(checkpointer=None):
     builder.add_edge("blog_writer", END)
     builder.add_edge("linkedin_writer", END)
     builder.add_edge("content_strategist", END)
+    builder.add_edge("image_generator", END)
     return builder.compile(checkpointer=checkpointer)
 
 

@@ -39,19 +39,9 @@ User request:
 {request}
 """
 
-SUCCESS_TEMPLATE = (
-    "**Intent:** {intent}\n"
-    "**Topic:** {topic}\n"
-    "\n"
-    "The {writer} is not built yet; this run stops after classification."
-)
-
-_WRITERS = {
-    "research": "research agent",
-    "blog": "blog writer",
-    "linkedin": "LinkedIn writer",
-    "image": "image generator",
-}
+# Image fields are written only on image runs; every run starts by clearing them so a reused
+# `langgraph dev` thread never shows an earlier run's image.
+_IMAGE_RESET = {"image_prompt": "", "image_path": "", "image_model": ""}
 
 
 class RouteDecision(BaseModel):
@@ -64,11 +54,13 @@ class RouteDecision(BaseModel):
 
 
 def query_handler(state: ContentState) -> dict:
-    """Every return writes intent, topic, final_output and errors so a reused thread
-    only ever shows this run's result."""
+    """Every return writes intent, topic, errors and clears the image fields so a reused thread only ever shows this
+    run's result; empty and error runs end here and also write final_output. Classified runs
+    continue to a node that writes final_output."""
     request = (state.get("request") or "").strip()
     if not request:
         return {
+            **_IMAGE_RESET,
             "intent": "empty",
             "topic": "",
             "final_output": EMPTY_REQUEST_MESSAGE,
@@ -85,26 +77,28 @@ def query_handler(state: ContentState) -> dict:
     except (openai.OpenAIError, ValueError, OpenAIRefusalError) as exc:
         message = llm.llm_error(NODE_NAME, exc)
         return {
+            **_IMAGE_RESET,
             "intent": "error",
             "topic": "",
             "final_output": message,
             "errors": [f"{NODE_NAME}: {type(exc).__name__}"],
         }
 
-    topic = decision.topic.strip() or request
     return {
+        **_IMAGE_RESET,
         "intent": decision.intent,
-        "topic": topic,
-        "final_output": SUCCESS_TEMPLATE.format(
-            intent=decision.intent, topic=topic, writer=_WRITERS[decision.intent]
-        ),
+        "topic": decision.topic.strip() or request,
         "errors": [],
     }
 
 
 def route_after_query_handler(state: ContentState) -> str:
-    """Research, blog and LinkedIn requests go to Deep Research; everything else ends."""
-    return "generate_queries" if state.get("intent") in RESEARCH_INTENTS else END
+    """Research, blog and LinkedIn requests go to Deep Research, image requests to the Image
+    Generator; empty and error runs end."""
+    intent = state.get("intent")
+    if intent in RESEARCH_INTENTS:
+        return "generate_queries"
+    return "image_generator" if intent == "image" else END
 
 
 # --- Post-research router -------------------------------------------------------------

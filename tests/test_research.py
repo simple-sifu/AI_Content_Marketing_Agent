@@ -15,6 +15,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from content_agent import research
 from content_agent.graph import build_graph, graph
+from content_agent.images import ImagePrompt
 from content_agent.research import (
     MISSING_SERPAPI_KEY,
     NO_SOURCES_SUMMARY,
@@ -25,7 +26,7 @@ from content_agent.research import (
 )
 from content_agent.router import PostResearchDecision, RouteDecision
 from content_agent.strategist import Report
-from tests.conftest import FakeLLM
+from tests.conftest import FakeLLM, png_b64
 
 SERP_KEY = "serp-SECRET-key-987"
 TOPIC = "AI in B2B marketing"
@@ -341,17 +342,18 @@ def test_research_failure_keeps_earlier_search_errors(use_llm, serp):
     assert result["errors"][1] == "synthesize: OutputParserException"
 
 
-def test_image_intent_skips_research(use_llm, serp):
+def test_image_intent_skips_research(use_llm, use_images, serp):
     _, calls = serp
     fake = use_llm(_fake(intent="image"))
+    fake.responses[ImagePrompt] = ImagePrompt(prompt="A chart-filled office at dawn.")
+    use_images([png_b64()])
 
     result = graph.invoke({"request": "Make an image of AI in B2B marketing"})
 
     assert calls == []
-    assert fake.schemas_called() == ["RouteDecision"]
-    assert result["final_output"].endswith(
-        "The image generator is not built yet; this run stops after classification."
-    )
+    assert fake.schemas_called() == ["RouteDecision", "ImagePrompt"]
+    assert "queries" not in result and "sources" not in result
+    assert result["image_model"] == "gpt-image-1"
 
 
 def test_thread_reuse_overwrites_research_fields(use_llm, serp):

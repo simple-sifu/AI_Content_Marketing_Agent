@@ -11,6 +11,7 @@ dependencies = [
     "python-dotenv",
     "pydantic",
     "google-search-results>=2.4.2",
+    "pillow>=12.3.0",
 ]
 
 [dependency-groups]

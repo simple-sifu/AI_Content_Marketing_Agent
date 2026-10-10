@@ -36,6 +36,11 @@ class ContentState(TypedDict, total=False):
     # Post-research router decision: "blog" | "linkedin" | "report" ("" when the router failed).
     # Only written when research found sources; otherwise the strategist reports directly.
     target_format: str
+    # Image Generator (image runs only): the enhanced prompt, the saved PNG's path and the
+    # model that produced it.
+    image_prompt: str
+    image_path: str
+    image_model: str
     # Final user-facing markdown.
     final_output: str
     # Problems from the current run only. Deliberately has no reducer (no operator.add):
