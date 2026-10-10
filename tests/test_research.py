@@ -24,6 +24,7 @@ from content_agent.research import (
     Synthesis,
 )
 from content_agent.router import RouteDecision
+from content_agent.strategist import Report
 from tests.conftest import FakeLLM
 
 SERP_KEY = "serp-SECRET-key-987"
@@ -44,6 +45,7 @@ def _fake(
     queries: list[str] | None = None,
     synthesis: Synthesis | None = None,
     errors: dict | None = None,
+    report: Report | None = None,
 ) -> FakeLLM:
     return FakeLLM(
         {
@@ -53,6 +55,12 @@ def _fake(
             or Synthesis(
                 summary="AI adoption in B2B marketing is rising [1][3].",
                 key_findings=["Most teams use AI for content [1].", "Personalization drives ROI [2][4]."],
+            ),
+            Report: report
+            or Report(
+                title="AI in B2B Marketing",
+                executive_summary="AI is now core to B2B marketing [1].",
+                what_this_means="Teams should invest in AI skills.",
             ),
         },
         errors=errors,
@@ -113,13 +121,11 @@ def test_happy_path(use_llm, serp, intent):
     ]
     assert result["errors"] == []
     out = result["final_output"]
-    assert "AI adoption in B2B marketing is rising [1][3]." in out
     assert "- Most teams use AI for content [1]." in out
-    assert "### Sources" in out
-    assert "1. a title 1 — https://example.com/a/1" in out
-    assert "4. c title 1 — https://example.com/c/1" in out
-    assert "Search problems" not in out
-    assert fake.schemas_called() == ["RouteDecision", "QueryPlan", "Synthesis"]
+    assert "## Sources" in out
+    assert "1. [a title 1](https://example.com/a/1)" in out
+    assert "4. [c title 1](https://example.com/c/1)" in out
+    assert fake.schemas_called() == ["RouteDecision", "QueryPlan", "Synthesis", "Report"]
     # The synthesis prompt numbers sources from 1 in list order.
     assert "[4] c title 1" in fake.calls[2][1]
     _assert_citations_valid(result)
@@ -175,7 +181,8 @@ def test_partial_failure_is_isolated(use_llm, serp, failure):
         assert "boom" not in result["errors"][0]
         assert "boom" not in result["final_output"]
     assert result["findings"]["key_findings"]
-    assert "### Search problems" in result["final_output"]
+    notes = result["final_output"].split("## Notes", 1)[1]
+    assert f"- {result['errors'][0]}" in notes
     assert result["intent"] == "research"
 
 
@@ -191,12 +198,13 @@ def test_all_searches_fail_or_empty(use_llm, serp):
     assert result["sources"] == []
     assert result["findings"] == {"summary": NO_SOURCES_SUMMARY, "key_findings": []}
     assert "Synthesis" not in fake.schemas_called()
+    assert "Report" not in fake.schemas_called()
     assert len(result["errors"]) == 2
     out = result["final_output"]
     assert NO_SOURCES_SUMMARY in out
-    assert "### Search problems" in out
-    assert all(e in out for e in result["errors"])
-    assert "### Sources" not in out
+    notes = out.split("## Notes", 1)[1]
+    assert all(f"- {e}" in notes for e in result["errors"])
+    assert "## Sources" not in out
 
 
 @pytest.mark.parametrize("value", [None, "", "   "])
@@ -286,7 +294,7 @@ def test_bracketed_title_is_not_a_citation(use_llm, serp):
     result = graph.invoke({"request": REQUEST})
 
     assert result["sources"][0]["title"] == "Best AI tools (2025) (3)"
-    assert "1. Best AI tools (2025) (3) — https://example.com/x" in result["final_output"]
+    assert "1. [Best AI tools (2025) (3)](https://example.com/x)" in result["final_output"]
     markers = {int(m) for m in re.findall(r"\[(\d+)\]", result["final_output"])}
     assert markers <= {1}
     assert "[2025]" not in fake.calls[2][1]

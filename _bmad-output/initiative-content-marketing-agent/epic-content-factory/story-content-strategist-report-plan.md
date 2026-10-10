@@ -3,14 +3,14 @@ title: 'Content Strategist report'
 type: 'feature'
 ticket: '3'
 created: '2026-10-10'
-status: 'ready-for-dev'
-baseline_revision: ''
+status: 'built'
+baseline_revision: '3ae7b8bc40bf4a04cd2a3da4d5e4e147df999be2'
 route: 'full'
 route_source: 'auto'
 risk: 'low'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context: []
 ---
@@ -64,9 +64,9 @@ context: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `content_agent/strategist.py` -- report node -- R7.
-- [ ] `content_agent/research.py`, `content_agent/graph.py` -- hand the ending to the strategist -- wiring.
-- [ ] `tests/test_research.py`, `tests/test_strategist.py` -- update interim-ending assertions and add matrix tests -- offline proof.
+- [x] `content_agent/strategist.py` -- report node -- R7.
+- [x] `content_agent/research.py`, `content_agent/graph.py` -- hand the ending to the strategist -- wiring.
+- [x] `tests/test_research.py`, `tests/test_strategist.py` -- update interim-ending assertions and add matrix tests -- offline proof.
 
 **Acceptance Criteria:**
 - Given no API keys and no network, when `uv run pytest` runs, then all tests pass.
@@ -74,9 +74,26 @@ context: []
 
 ## Implementation Notes
 
+- One structured LLM call (`Report`: title, executive_summary, what_this_means). The title is single-lined, stripped of `#` and all `[n]` markers; the summary and "What this means" go through `_clean_citations`. "What this means" is kept even without a citation; it appears in Notes as `**What this means:** ...`, followed by bullet lines for the deferred-writer note and this run's `errors`. So with the LLM, Notes appears whenever that paragraph is non-blank, not only when there are errors (per the 2026-10-10 decision).
+- `NO_FINDINGS_LINE` is kept in `research.py`: the strategist uses it under Key Findings when sources exist but no finding survived cleaning.
+- No sources and no `errors` (every search came back empty): Notes says "The searches ran but returned no results." (`NO_RESULTS_NOTE`).
+- `tests/test_strategist.py` reuses `serp` and the fakes from `tests/test_research.py` by import.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+**Pass 1 (quick lens)** — high 0 / medium 0 / low 6 / false 1 / maybe-false 0
+
+| # | Finding | Verdict | Route | Evidence / action |
+|---|---------|---------|-------|-------------------|
+| 1 | Fallback title uses the raw topic, so `[n]` in a topic reaches the `#` heading | low | patch | Verified: `_default_title` skips cleaning; reviewer's probe printed `# Research Report: Top 10 tools [2025] [3]`. Grouped with #2 (unsanitized text rendered into the report). Patch: swap brackets for parens. |
+| 2 | Error lines in Notes can carry `[n]` from LLM-written queries | low | patch | Verified: `_search_error` embeds the query; Notes copies errors verbatim. Same patch as #1. |
+| 3 | Uncited summary fallback can say "see cited findings below" above the no-findings line | low | reject | Needs both LLM calls uncited and every finding dropped; the fix adds a new branch. |
+| 4 | `or NO_SOURCES_SUMMARY` fallback in the has-sources branch is the wrong message | low | reject | Unreachable in the graph: `synthesize` always writes a non-empty summary before the strategist runs. |
+| 5 | `NO_FINDINGS_LINE` placeholder untested | low | patch | Verified: no test references it. Add a test. |
+| 6 | `[99]`/`[7]` not-in-`final_output` checks are vacuous | low | patch | Verified: strategist's fake summary replaces the synthesis summary. Add a fallback-path test. |
+| 7 | Notes appears without errors despite matrix "Notes only if errors" | false | reject | The user's 2026-10-10 decision in the frozen block places "What this means" in Notes, which supersedes that matrix note; behaviour follows the decision. |
 
 ## Verification
 
