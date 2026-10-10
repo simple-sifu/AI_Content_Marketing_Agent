@@ -191,3 +191,128 @@ def validate_blog(post: str, sources: list, keyword: str) -> list[str]:
                 f"The Sources section must list the {n} sources as 'n. [title](url)' in order."
             )
     return failures
+
+
+# --- LinkedIn posts ---------------------------------------------------------------------
+#
+# A post looks like (plain text, paragraphs separated by blank lines):
+#
+#     <hook>
+#
+#     <story paragraph(s)>
+#
+#     <cta>
+#
+#     #Tag1 #Tag2 ... (8-12 tags)
+#
+#     Sources:
+#     - https://...
+#
+# Length, parts and hashtags are measured on the post before `Sources:`.
+
+LINKEDIN_MIN, LINKEDIN_MAX = 1300, 1600
+HOOK_MAX = 210
+HASHTAGS_MIN, HASHTAGS_MAX = 8, 12
+LINKEDIN_SOURCES_MAX = 5
+LINKEDIN_SOURCES_HEADING = "Sources:"
+
+_HASHTAG = re.compile(r"(?<![\w#])#\w+")
+_HASHTAG_TOKEN = re.compile(r"^#\w+$")
+_PARAGRAPH_BREAK = re.compile(r"\n[ \t]*\n")
+_MD_HEADING = re.compile(r"^[ \t]*#{1,6}[ \t]")
+
+
+def _linkedin_split(post: str) -> tuple[str, str | None]:
+    """Return (post text before the last `Sources:` line, the Sources block or None)."""
+    lines = (post or "").splitlines()
+    found = [i for i, line in enumerate(lines) if line.strip() == LINKEDIN_SOURCES_HEADING]
+    if not found:
+        return "\n".join(lines).strip(), None
+    i = found[-1]
+    return "\n".join(lines[:i]).strip(), "\n".join(lines[i + 1 :])
+
+
+def linkedin_post_text(post: str) -> str:
+    """The post itself (hook through hashtags), without the Sources list."""
+    return _linkedin_split(post)[0]
+
+
+def linkedin_paragraphs(text: str) -> list[str]:
+    return [p.strip() for p in _PARAGRAPH_BREAK.split(text or "") if p.strip()]
+
+
+def hashtags(text: str) -> list[str]:
+    """Every `#tag` in `text`, in order."""
+    return _HASHTAG.findall(text or "")
+
+
+def linkedin_source_urls(post: str) -> list[str]:
+    """URLs listed under `Sources:` (lines of the form `- <url>`)."""
+    block = _linkedin_split(post)[1] or ""
+    return [line.strip()[2:].strip() for line in block.splitlines() if line.strip().startswith("- ")]
+
+
+def validate_linkedin(post: str, sources: list) -> list[str]:
+    """Return every failed LinkedIn check as a readable message; an empty list means valid."""
+    failures: list[str] = []
+    text, block = _linkedin_split(post)
+
+    length = len(text)
+    if not LINKEDIN_MIN <= length <= LINKEDIN_MAX:
+        failures.append(
+            f"The post is {length} characters (hook through hashtags, excluding Sources); "
+            f"it must be {LINKEDIN_MIN}-{LINKEDIN_MAX}."
+        )
+
+    paragraphs = linkedin_paragraphs(text)
+    tag_line = paragraphs[-1] if paragraphs else ""
+    tokens = tag_line.split()
+    if "\n" in tag_line or not tokens or not all(_HASHTAG_TOKEN.match(t) for t in tokens):
+        failures.append("The post must end with one line of hashtags only (before Sources).")
+        prose = paragraphs
+    else:
+        prose = paragraphs[:-1]
+        unique = {t.lower() for t in tokens}
+        if len(unique) != len(tokens):
+            failures.append("The hashtags must not repeat.")
+        if not HASHTAGS_MIN <= len(unique) <= HASHTAGS_MAX:
+            failures.append(
+                f"The post has {len(unique)} unique hashtags; it needs {HASHTAGS_MIN}-{HASHTAGS_MAX}."
+            )
+
+    if len(prose) < 3:
+        failures.append(
+            f"The post needs a hook, at least one story paragraph and a CTA before the "
+            f"hashtags; found {len(prose)} paragraph(s)."
+        )
+    if prose and len(prose[0]) > HOOK_MAX:
+        failures.append(f"The hook is {len(prose[0])} characters; it must be at most {HOOK_MAX}.")
+    if any(hashtags(p) for p in prose):
+        failures.append("Hashtags belong only on the final hashtag line, not in the hook, story or CTA.")
+
+    if _CITATION.search(text):
+        failures.append("The post must not contain [n] citation markers.")
+    if "**" in text or any(_MD_HEADING.match(line) for line in text.splitlines()):
+        failures.append("The post must be plain text (no markdown headings or bold).")
+
+    if block is None:
+        failures.append(f"The post must end with a '{LINKEDIN_SOURCES_HEADING}' list of URLs.")
+    else:
+        lines = (post or "").splitlines()
+        heading = max(i for i, line in enumerate(lines) if line.strip() == LINKEDIN_SOURCES_HEADING)
+        if heading == 0 or lines[heading - 1].strip():
+            failures.append(f"A blank line must separate the post from '{LINKEDIN_SOURCES_HEADING}'.")
+        if any(line.strip() and not line.strip().startswith("- ") for line in block.splitlines()):
+            failures.append("Every line under Sources must be '- <url>'.")
+        urls = linkedin_source_urls(post)
+        known = {s["url"] for s in sources or []}
+        if not 1 <= len(urls) <= LINKEDIN_SOURCES_MAX:
+            failures.append(
+                f"The Sources list has {len(urls)} URLs; it needs 1-{LINKEDIN_SOURCES_MAX}."
+            )
+        if len(set(urls)) != len(urls):
+            failures.append("The Sources list must not repeat a URL.")
+        unknown = [u for u in urls if u not in known]
+        if unknown:
+            failures.append(f"Source URL(s) not from the research: {', '.join(unknown)}.")
+    return failures

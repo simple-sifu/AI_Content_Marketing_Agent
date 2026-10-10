@@ -1,4 +1,5 @@
-"""Query Handler (classify + topic) and post-research router (blog or report); routing helpers."""
+"""Query Handler (classify + topic) and post-research router (blog, linkedin or report);
+routing helpers."""
 
 from __future__ import annotations
 
@@ -115,8 +116,8 @@ user's topic is done. Decide which format to write from it.
 
 Formats:
 - blog: the user asked for a blog post or article.
-- report: anything else (a research report, overview or analysis, a LinkedIn post, or
-  an unclear request).
+- linkedin: the user asked for a LinkedIn post.
+- report: anything else (a research report, overview or analysis, or an unclear request).
 
 User request:
 {request}
@@ -125,14 +126,17 @@ Classified intent: {intent}
 """
 
 
+_WRITER_NODES = {"blog": "blog_writer", "linkedin": "linkedin_writer"}
+
+
 class PostResearchDecision(BaseModel):
-    target_format: Literal["blog", "report"] = Field(
+    target_format: Literal["blog", "linkedin", "report"] = Field(
         description="Which format to write from the research."
     )
 
 
 def post_research_router(state: ContentState) -> dict:
-    """Pick blog or report. Runs only when research found sources; always writes target_format."""
+    """Pick blog, linkedin or report. Runs only when research found sources; always writes target_format."""
     prompt = POST_RESEARCH_PROMPT.format(
         request=(state.get("request") or "").strip(), intent=state.get("intent") or ""
     )
@@ -147,7 +151,7 @@ def post_research_router(state: ContentState) -> dict:
 
 
 def route_after_research(state: ContentState) -> str:
-    """After the post-research router: blog writer, strategist report, or END on error."""
+    """After the post-research router: blog or LinkedIn writer, strategist report, or END on error."""
     if state.get("intent") == "error":
         return END
-    return "blog_writer" if state.get("target_format") == "blog" else "content_strategist"
+    return _WRITER_NODES.get(state.get("target_format") or "", "content_strategist")

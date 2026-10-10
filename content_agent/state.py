@@ -33,7 +33,7 @@ class ContentState(TypedDict, total=False):
     sources: list[Source]
     # Deep Research: cited synthesis of `sources` (handoff to report/blog/LinkedIn writers).
     findings: Findings
-    # Post-research router decision: "blog" | "report" ("" when the router failed).
+    # Post-research router decision: "blog" | "linkedin" | "report" ("" when the router failed).
     # Only written when research found sources; otherwise the strategist reports directly.
     target_format: str
     # Final user-facing markdown.

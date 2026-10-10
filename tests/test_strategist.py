@@ -106,7 +106,7 @@ def test_fallbacks_for_blank_title_and_uncited_summary(use_llm, serp):
     _assert_report_citations_valid(out, 3)
 
 
-def test_linkedin_gets_report_with_note(use_llm, serp):
+def test_linkedin_routed_to_report_has_no_writer_note(use_llm, serp):
     responses, _ = serp
     _three_sources(responses)
     use_llm(_fake("linkedin"))
@@ -117,8 +117,7 @@ def test_linkedin_gets_report_with_note(use_llm, serp):
     assert result["intent"] == "linkedin"
     assert result["target_format"] == "report"
     assert [h.split(" ", 1)[0] for h in _headings(out)] == ["#", "##", "##", "##", "##"]
-    notes = out.split("## Notes", 1)[1]
-    assert "- The LinkedIn writer is not built yet, so this is the research report." in notes
+    assert "not built yet" not in out
     _assert_report_citations_valid(out, 3)
 
 

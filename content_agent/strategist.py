@@ -19,8 +19,6 @@ from content_agent.state import ContentState
 
 NODE_NAME = "content_strategist"
 NO_RESULTS_NOTE = "The searches ran but returned no results."
-# Writers for these intents arrive later (LinkedIn: entry 5); until then they get the report.
-_DEFERRED_WRITERS = {"linkedin": "LinkedIn writer"}
 
 REPORT_PROMPT = """You are a content strategist. Using ONLY the research below, write:
 - title: a short, specific report title (plain text, no markdown, no citations).
@@ -64,13 +62,9 @@ def _clean_title(title: str) -> str:
 
 
 def _notes(state: ContentState, extra: list[str]) -> list[str]:
-    """Notes body: optional paragraphs (`extra`), deferred-writer line, this run's errors."""
+    """Notes body: optional paragraphs (`extra`), then this run's errors."""
     parts = [p for p in extra if p]
-    bullets: list[str] = []
-    writer = _DEFERRED_WRITERS.get(state.get("intent") or "")
-    if writer:
-        bullets.append(f"The {writer} is not built yet, so this is the research report.")
-    bullets += [_unbracket(e) for e in state.get("errors") or []]
+    bullets = [_unbracket(e) for e in state.get("errors") or []]
     if bullets:
         parts.append("\n".join(f"- {b}" for b in bullets))
     return parts

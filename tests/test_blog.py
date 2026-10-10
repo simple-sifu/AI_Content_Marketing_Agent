@@ -88,8 +88,7 @@ def test_report_requests_get_strategist_report(use_llm, serp, intent):
     assert "BlogDraft" not in fake.schemas_called()
     assert fake.schemas_called()[-2:] == ["PostResearchDecision", "Report"]
     assert "## Executive Summary" in out
-    note = "- The LinkedIn writer is not built yet, so this is the research report."
-    assert (note in out) == (intent == "linkedin")
+    assert "not built yet" not in out
     # The router sees the request and the classified intent.
     router_prompt = fake.calls[3][1]
     assert REQUEST in router_prompt and f"Classified intent: {intent}" in router_prompt
