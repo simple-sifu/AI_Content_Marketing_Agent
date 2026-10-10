@@ -18,11 +18,18 @@ class _Structured:
         error = self.fake.errors.get(self.schema, self.fake.error)
         if error is not None:
             raise error
-        return self.fake.responses[self.schema]
+        response = self.fake.responses[self.schema]
+        if isinstance(response, list):  # successive calls get successive items; the last repeats
+            index = sum(1 for name, _ in self.fake.calls if name == self.schema.__name__) - 1
+            response = response[min(index, len(response) - 1)]
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 class FakeLLM:
-    """Returns `responses[schema]`; raises `errors[schema]`, else `error` for every schema."""
+    """Returns `responses[schema]` (a list gives one item per call, the last repeating; an
+    exception item is raised); raises `errors[schema]`, else `error` for every schema."""
 
     def __init__(
         self,

@@ -1,4 +1,4 @@
-"""Query Handler: classifies the request and extracts its topic; routes what comes next."""
+"""Query Handler (classify + topic) and post-research router (blog or report); routing helpers."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from langgraph.graph import END
 from pydantic import BaseModel, Field
 
 from content_agent import llm
+from content_agent.research import _LLM_ERRORS, _llm_failure
 from content_agent.state import ContentState
 
 NODE_NAME = "query_handler"
@@ -103,3 +104,50 @@ def query_handler(state: ContentState) -> dict:
 def route_after_query_handler(state: ContentState) -> str:
     """Research, blog and LinkedIn requests go to Deep Research; everything else ends."""
     return "generate_queries" if state.get("intent") in RESEARCH_INTENTS else END
+
+
+# --- Post-research router -------------------------------------------------------------
+
+POST_RESEARCH_NODE = "post_research_router"
+
+POST_RESEARCH_PROMPT = """You are the editor of a content marketing agent. Research on the
+user's topic is done. Decide which format to write from it.
+
+Formats:
+- blog: the user asked for a blog post or article.
+- report: anything else (a research report, overview or analysis, a LinkedIn post, or
+  an unclear request).
+
+User request:
+{request}
+
+Classified intent: {intent}
+"""
+
+
+class PostResearchDecision(BaseModel):
+    target_format: Literal["blog", "report"] = Field(
+        description="Which format to write from the research."
+    )
+
+
+def post_research_router(state: ContentState) -> dict:
+    """Pick blog or report. Runs only when research found sources; always writes target_format."""
+    prompt = POST_RESEARCH_PROMPT.format(
+        request=(state.get("request") or "").strip(), intent=state.get("intent") or ""
+    )
+    try:
+        structured = llm.get_llm(temperature=0).with_structured_output(PostResearchDecision)
+        decision = structured.invoke(prompt)
+        if not isinstance(decision, PostResearchDecision):
+            raise OutputParserException("structured output did not match PostResearchDecision")
+    except _LLM_ERRORS as exc:
+        return {"target_format": "", **_llm_failure(state, POST_RESEARCH_NODE, exc)}
+    return {"target_format": decision.target_format}
+
+
+def route_after_research(state: ContentState) -> str:
+    """After the post-research router: blog writer, strategist report, or END on error."""
+    if state.get("intent") == "error":
+        return END
+    return "blog_writer" if state.get("target_format") == "blog" else "content_strategist"

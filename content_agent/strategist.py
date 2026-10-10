@@ -19,8 +19,8 @@ from content_agent.state import ContentState
 
 NODE_NAME = "content_strategist"
 NO_RESULTS_NOTE = "The searches ran but returned no results."
-# Writers for these intents arrive in entries 4-5; until then they get the research report.
-_DEFERRED_WRITERS = {"blog": "blog writer", "linkedin": "LinkedIn writer"}
+# Writers for these intents arrive later (LinkedIn: entry 5); until then they get the report.
+_DEFERRED_WRITERS = {"linkedin": "LinkedIn writer"}
 
 REPORT_PROMPT = """You are a content strategist. Using ONLY the research below, write:
 - title: a short, specific report title (plain text, no markdown, no citations).
