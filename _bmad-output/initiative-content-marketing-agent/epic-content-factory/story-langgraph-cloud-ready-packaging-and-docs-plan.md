@@ -74,6 +74,7 @@ context: []
 - `uv run langgraph dockerfile` produced `ADD . /deps/AI_Content_Marketing_Agent` and then `uv pip install -e .`, which confirmed that `.dockerignore` was needed to keep `.env` out of the image.
 - Fresh clone (2026-10-10): `git clone --branch story-7-packaging-and-docs` of commit 8d8bcd9 into the scratchpad, followed by the README setup (`uv sync`, `cp .env.example .env`, keys copied in). `uv run pytest -q`: 168 passed. `uv run langgraph dev --no-browser --port 2099`: `/ok` returned `{"ok":true}` and assistants search listed `content_agent`. The first pass applied a patch to a clone; it was redone from the committed branch after review.
 - README commands not run by the agent: `git clone` from GitHub (the local clone stands in until the branch is pushed), and `langgraph build` plus the Deploy steps. These need Docker or the user's LangSmith account; the Docker build is the user's check.
+- Docker (2026-10-10, user-run build): `uv run langgraph build -t content-agent` produced `content-agent:latest` (1.09GB). Inside it, `/deps/AI_Content_Marketing_Agent` holds only `.dockerignore`, `.env.example`, `.python-version`, `README.md`, `content_agent/`, `langgraph.json`, `pyproject.toml`, `tests/` and `uv.lock`. `find /deps -name .env` found nothing. The graph imports with Pillow and serpapi installed, and lists all 9 nodes.
 
 ## Plan Change Log
 
@@ -84,7 +85,7 @@ context: []
 | # | Finding | Verdict | Route | Evidence / action |
 |---|---------|---------|-------|-------------------|
 | 1 | README says every writer validates and revises; the strategist doesn't | low | patch | Verified: `strategist.py` has no validator or revision loop. The sentence now names the blog and LinkedIn writers only. |
-| 2 | Verification unrecorded; fresh clone used an applied patch, not the branch | — | resolved | Committed, then recloned the branch and reran setup, tests and `/ok` (Implementation Notes). The Docker build is still the user's check. |
+| 2 | Verification unrecorded; fresh clone used an applied patch, not the branch | — | resolved | Committed, then recloned the branch and reran setup, tests and `/ok` (Implementation Notes). The user ran the Docker build afterwards and it passed (Implementation Notes). |
 
 ## Verification
 
